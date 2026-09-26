@@ -38,7 +38,7 @@ h1,h2,h3,p{margin-top:0}
 .button.ghost:hover{background:rgba(255,255,255,.17)}
 .age-note{margin:24px 0 0;font-size:.88rem;color:rgba(255,255,255,.76)}
 .hero-strip{position:relative;z-index:2;width:100%;background:#72b9e5;border-top:1px solid rgba(255,255,255,.22);box-shadow:0 -18px 45px rgba(7,33,51,.18)}
-.hero-strip img{display:block;width:100%;height:auto}
+.hero-strip img{display:block;width:100%;height:clamp(280px,30vw,420px);object-fit:cover;object-position:center 58%}
 .scroll-cue{display:none}
 
 .section{max-width:1220px;margin:auto;padding:112px clamp(20px,5vw,74px)}
