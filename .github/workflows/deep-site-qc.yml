@@ -1,0 +1,133 @@
+name: deep-site-qc
+on:
+  push:
+    paths:
+      - '.github/workflows/deep-site-qc.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+
+      - name: Run deep website QC
+        shell: bash
+        run: |
+          mkdir -p qc-deep
+          cat > qc-deep.js <<'JS'
+          const { chromium } = require('playwright');
+          const fs = require('fs');
+          const sites = [
+            ['jibbyjoo','https://jibbyjoo.jaytreebooks.com/'],
+            ['daily365','https://daily365.jaytreebooks.com/'],
+            ['ifitstopped','https://ifitstopped.jaytreebooks.com/']
+          ];
+          const viewports = [
+            ['desktop',{width:1600,height:1000}],
+            ['laptop',{width:1366,height:768}],
+            ['tablet',{width:820,height:1180}],
+            ['mobile',{width:390,height:844}]
+          ];
+          (async()=>{
+            const browser=await chromium.launch({headless:true});
+            const report=[];
+            for(const [slug,url] of sites){
+              for(const [mode,viewport] of viewports){
+                const context=await browser.newContext({viewport});
+                const page=await context.newPage();
+                const consoleErrors=[];
+                page.on('console',m=>{ if(m.type()==='error') consoleErrors.push(m.text()) });
+                const resp=await page.goto(url+'?deepqc='+Date.now(),{waitUntil:'networkidle',timeout:30000});
+                await page.waitForTimeout(700);
+                await page.screenshot({path:`qc-deep/${slug}-${mode}-top.png`,fullPage:false});
+
+                const before=await page.evaluate(()=>({
+                  title:document.title,
+                  description:document.querySelector('meta[name="description"]')?.content||'',
+                  h1Count:document.querySelectorAll('h1').length,
+                  h1:(document.querySelector('h1')?.innerText||'').replace(/\s+/g,' ').trim(),
+                  headings:[...document.querySelectorAll('h1,h2,h3')].map(x=>({tag:x.tagName,text:x.innerText.replace(/\s+/g,' ').trim()})),
+                  navLinks:[...document.querySelectorAll('nav a')].map(a=>({text:a.innerText.trim(),href:a.getAttribute('href')})),
+                  imgCount:document.images.length,
+                  missingAlts:[...document.images].filter(i=>!i.hasAttribute('alt')).map(i=>i.src),
+                  emptyAlts:[...document.images].filter(i=>i.getAttribute('alt')==='').map(i=>i.src),
+                  brokenImages:[...document.images].filter(i=>!i.complete||i.naturalWidth===0).map(i=>i.src),
+                  images:[...document.images].map(i=>{
+                    const r=i.getBoundingClientRect();
+                    const naturalRatio=i.naturalWidth&&i.naturalHeight ? i.naturalWidth/i.naturalHeight : null;
+                    const boxRatio=r.width&&r.height ? r.width/r.height : null;
+                    return {src:i.currentSrc||i.src,natural:[i.naturalWidth,i.naturalHeight],box:[Math.round(r.width),Math.round(r.height)],naturalRatio,boxRatio,ratioDelta:(naturalRatio&&boxRatio)?Math.abs(naturalRatio-boxRatio):null};
+                  }),
+                  width:innerWidth,
+                  height:innerHeight,
+                  scrollWidth:document.documentElement.scrollWidth,
+                  scrollHeight:document.documentElement.scrollHeight,
+                  overflowX:document.documentElement.scrollWidth>innerWidth+2,
+                  fixed:[...document.querySelectorAll('*')].filter(e=>getComputedStyle(e).position==='fixed').map(e=>({tag:e.tagName,cls:e.className,id:e.id,box:(()=>{const r=e.getBoundingClientRect();return [Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]})()})),
+                  fontFamilies:[...new Set([...document.querySelectorAll('body *')].slice(0,250).map(e=>getComputedStyle(e).fontFamily))],
+                  colors:[...new Set([...document.querySelectorAll('body *')].slice(0,250).map(e=>getComputedStyle(e).color))].slice(0,30),
+                  links:[...document.querySelectorAll('a')].map(a=>({text:a.innerText.trim(),href:a.href,target:a.target})),
+                  sections:[...document.querySelectorAll('section')].map(s=>{const r=s.getBoundingClientRect();return {id:s.id,cls:s.className,h:Math.round(r.height),y:Math.round(r.top+scrollY)}})
+                }));
+
+                await page.evaluate(async()=>{
+                  const step=Math.max(300,Math.floor(innerHeight*0.65));
+                  for(let y=0;y<document.documentElement.scrollHeight;y+=step){
+                    scrollTo(0,y);
+                    await new Promise(r=>setTimeout(r,90));
+                  }
+                  scrollTo(0,0);
+                  await new Promise(r=>setTimeout(r,250));
+                });
+                await page.screenshot({path:`qc-deep/${slug}-${mode}-full.png`,fullPage:true});
+
+                const perf=await page.evaluate(()=>({
+                  nav:performance.getEntriesByType('navigation')[0] ? {
+                    domContentLoaded:Math.round(performance.getEntriesByType('navigation')[0].domContentLoadedEventEnd),
+                    load:Math.round(performance.getEntriesByType('navigation')[0].loadEventEnd),
+                    transferSize:performance.getEntriesByType('navigation')[0].transferSize,
+                    encodedBodySize:performance.getEntriesByType('navigation')[0].encodedBodySize
+                  }:null,
+                  resources:performance.getEntriesByType('resource').map(r=>({name:r.name,transferSize:r.transferSize,encodedBodySize:r.encodedBodySize,duration:Math.round(r.duration),initiatorType:r.initiatorType}))
+                }));
+
+                report.push({slug,url,mode,status:resp?.status(),headers:resp?Object.fromEntries(Object.entries(await resp.allHeaders()).filter(([k])=>['content-type','content-length','cache-control','server','strict-transport-security'].includes(k))):{},consoleErrors,before,perf});
+                await context.close();
+              }
+            }
+            fs.writeFileSync('qc-deep/report.json',JSON.stringify(report,null,2));
+            await browser.close();
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          node qc-deep.js
+
+      - name: Check HTTP redirects and TLS
+        shell: bash
+        run: |
+          {
+            for host in jibbyjoo.jaytreebooks.com daily365.jaytreebooks.com ifitstopped.jaytreebooks.com; do
+              echo "===== $host ====="
+              echo "-- HTTP --"
+              curl -I -sS --max-time 20 "http://$host/" | head -12
+              echo "-- HTTPS --"
+              curl -I -sS --max-time 20 "https://$host/" | head -12
+              echo "-- CERT --"
+              echo | openssl s_client -connect "$host:443" -servername "$host" 2>/dev/null | openssl x509 -noout -subject -issuer -dates -ext subjectAltName 2>/dev/null
+              echo
+            done
+          } > qc-deep/network.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deep-site-qc
+          path: qc-deep
+          retention-days: 2
