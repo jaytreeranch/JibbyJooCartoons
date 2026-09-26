@@ -117,8 +117,7 @@ footer{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;align-items:cente
 .footer-brand img{width:38px;height:38px;border-radius:50%}
 footer span{text-align:center}
 footer a{text-align:right;color:#fff;font-weight:800}
-.reveal{opacity:0;transform:translateY(24px);transition:opacity .7s ease,transform .7s ease}
-.reveal.on{opacity:1;transform:none}
+.reveal{opacity:1;transform:none}.reveal.on{opacity:1;transform:none}
 @media(max-width:1040px){
   .hero-inner{grid-template-columns:1fr}.hero-characters{min-height:540px;max-width:760px;width:100%;justify-self:center}.jibby-card{top:85px}
   .cast{grid-template-columns:repeat(3,1fr)}
