@@ -74,6 +74,7 @@ jobs:
                   };
                 });
 
+                await page.screenshot({path:`site-audit/${slug}-${mode}-top.png`,fullPage:false});
                 const a11y=await new AxeBuilder({page})
                   .withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa'])
                   .analyze();
@@ -99,7 +100,6 @@ jobs:
                   if(f) focus.push(f);
                 }
 
-                await page.screenshot({path:`site-audit/${slug}-${mode}-top.png`,fullPage:false});
                 await page.evaluate(async()=>{
                   const step=Math.max(300,Math.floor(innerHeight*.7));
                   for(let y=0;y<document.documentElement.scrollHeight;y+=step){
@@ -107,11 +107,12 @@ jobs:
                   }
                   scrollTo(0,0); await new Promise(r=>setTimeout(r,250));
                 });
+                const afterScrollBrokenImages=await page.evaluate(()=>[...document.images].filter(i=>!i.complete||i.naturalWidth===0).map(i=>i.currentSrc||i.src));
                 await page.screenshot({path:`site-audit/${slug}-${mode}-full.png`,fullPage:true});
 
                 results.push({
                   slug,url,mode,status:response?.status()||null,
-                  consoleErrors,layout,focus,
+                  consoleErrors,layout,afterScrollBrokenImages,focus,
                   axe:{
                     passes:a11y.passes.length,
                     violations:a11y.violations.map(v=>({
