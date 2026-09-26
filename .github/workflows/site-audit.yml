@@ -83,12 +83,16 @@ jobs:
                 await page.evaluate(()=>window.scrollTo(0,0));
                 for(let i=0;i<14;i++){
                   await page.keyboard.press('Tab');
+                  await page.waitForTimeout(50);
                   const f=await page.evaluate(()=>{
                     const e=document.activeElement;
                     if(!e || e===document.body) return null;
                     const r=e.getBoundingClientRect(), s=getComputedStyle(e);
                     return {
                       tag:e.tagName,
+                      className:e.className,
+                      matchesFocus:e.matches(':focus'),
+                      matchesFocusVisible:e.matches(':focus-visible'),
                       text:(e.innerText||e.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim().slice(0,120),
                       href:e.getAttribute('href'),
                       rect:[Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)],
